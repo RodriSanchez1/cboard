@@ -155,6 +155,50 @@ class Language extends React.Component {
     await setTtsEngine(this.props.ttsEngine.name);
   }
 
+  handleInstallLangClick() {
+    alert('clicling button');
+
+    var fileTransfer = new window.FileTransfer();
+
+    // Get cordova file data directory (app sandbox directory)
+    //  > file:///data/user/0/io.cordova.apk.installer.sample/files/
+    var sandBoxDirectory = window.cordova.file.dataDirectory;
+    alert(sandBoxDirectory);
+
+    // Please set apk download path
+    var apkUrl =
+      'https://cboardgroupqadiag.blob.core.windows.net/apk/app-litemne-1.3.11.apk';
+
+    alert(apkUrl);
+
+    // Get file name by apk url;
+    var fileName = apkUrl.match(/[^/]+$/i)[0];
+    alert(fileName);
+
+    fileTransfer.download(
+      apkUrl,
+      sandBoxDirectory + fileName,
+      function(entry) {
+        alert('download success: ' + entry.toURL());
+        // Install app
+        window.appInstaller.install(
+          fileName,
+          function(msg) {
+            alert('success');
+          },
+          function(error) {
+            alert('Install Error !!: ' + error);
+          }
+        );
+      },
+      function(error) {
+        alert('Download Error !!: ' + error);
+      },
+      false,
+      {}
+    );
+  }
+
   render() {
     const {
       langs,
@@ -296,6 +340,12 @@ class Language extends React.Component {
           >
             <FormattedMessage {...messages.moreLanguages} />
           </DialogTitle>
+          <Button
+            color="primary"
+            onClick={this.handleInstallLangClick.bind(this)}
+          >
+            <FormattedMessage {...messages.moreLanguages} />
+          </Button>
           <DialogContent aria-label="more-languages-dialog-content">
             <div className="Settings__Language__MoreLang__Dialog">
               <ReactMarkdown source={this.state.markdown} escapeHtml={false} />

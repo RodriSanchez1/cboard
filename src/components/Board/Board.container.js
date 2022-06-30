@@ -46,7 +46,9 @@ import {
   getApiObjects,
   downloadImages,
   createApiBoard,
-  upsertApiBoard
+  upsertApiBoard,
+  updateLocalImage,
+  updateLoadLocalImages
 } from './Board.actions';
 import {
   upsertCommunicator,
@@ -66,6 +68,8 @@ import { NOTIFICATION_DELAY } from '../Notifications/Notifications.constants';
 import { EMPTY_VOICES } from '../../providers/SpeechProvider/SpeechProvider.constants';
 import { DEFAULT_ROWS_NUMBER, DEFAULT_COLUMNS_NUMBER } from './Board.constants';
 //import { isAndroid } from '../../cordova-util';
+import { db } from '../../indexedDb';
+import ImageEditorMessages from './ImageEditor/ImageEditor.messages';
 
 const Transition = React.forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
@@ -173,7 +177,8 @@ export class BoardContainer extends Component {
     lang: PropTypes.string,
     isRootBoardTourEnabled: PropTypes.bool,
     disableTour: PropTypes.func,
-    isLiveMode: PropTypes.bool
+    isLiveMode: PropTypes.bool,
+    updateLoadLocalImages: PropTypes.func
   };
 
   state = {
@@ -204,9 +209,13 @@ export class BoardContainer extends Component {
       changeBoard,
       userData,
       history,
-      getApiObjects
-      //downloadImages
+      getApiObjects,
+      downloadImages,
+      updateLocalImage,
+      updateLoadLocalImages
     } = this.props;
+
+    updateLoadLocalImages(false);
 
     // Loggedin user?
     if ('name' in userData && 'email' in userData && window.navigator.onLine) {
@@ -269,16 +278,19 @@ export class BoardContainer extends Component {
     const goTo = id ? boardId : `board/${boardId}`;
     history.replace(goTo);
 
-    const translatedBoard = this.translateBoard(boardExists);
+    const boardWithLocalImages = await this.boardWithLocalImages(boardExists);
+
+    const translatedBoard = this.translateBoard(boardWithLocalImages);
     this.setState({ translatedBoard });
 
+    await this.outputWithLocalImages();
     //set board type
     this.setState({ isFixedBoard: !!boardExists.isFixed });
 
-    // if (isAndroid()) downloadImages();
+    downloadImages();
   }
 
-  UNSAFE_componentWillReceiveProps(nextProps) {
+  async UNSAFE_componentWillReceiveProps(nextProps) {
     if (this.props.match.params.id !== nextProps.match.params.id) {
       const {
         navHistory,
@@ -311,8 +323,15 @@ export class BoardContainer extends Component {
     }
 
     // TODO: perf issues
-    const translatedBoard = this.translateBoard(nextProps.board);
-    this.setState({ translatedBoard });
+    if (this.props.board !== nextProps.board) {
+      const boardWithLocalImages = await this.boardWithLocalImages(
+        nextProps.board
+      );
+      const translatedBoard = this.translateBoard(boardWithLocalImages);
+      this.setState({ translatedBoard });
+      // const translatedBoard = this.translateBoard(nextProps.board);
+      // this.setState({ translatedBoard });
+    }
   }
 
   componentDidUpdate(prevProps) {
@@ -320,6 +339,146 @@ export class BoardContainer extends Component {
     if (board && prevProps.board && board.isFixed !== prevProps.board.isFixed) {
       this.setState({ isFixedBoard: board.isFixed });
     }
+  }
+
+  getFileNameFromUrl(url) {
+    try {
+      console.log(url);
+      const parsed = new URL(url);
+      const filename = parsed.pathname.substring(
+        parsed.pathname.lastIndexOf('/') + 1
+      );
+      if (filename.lastIndexOf('.') !== -1) {
+        return filename;
+      } else {
+        return `${filename}.png`;
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async getLocalTileImage(tile) {
+    //const id = this.getFileNameFromUrl(tile.image);
+    const blob = await db.images.get({
+      id: tile.id
+    });
+    if (blob) {
+      // const ab = new ArrayBuffer(arrayBuffer.arrayBuffer);
+      console.log(blob);
+      //const blob = new Blob([arrayBuffer.arrayBuffer], { type: 'image/png' });
+      const url = URL.createObjectURL(blob.file);
+
+      return url;
+    } else {
+      return tile.image;
+    }
+  }
+
+  async setLocalImages(boardExists) {
+    const { updateLocalImage } = this.props;
+    const newBoard = JSON.parse(JSON.stringify(boardExists));
+    // const promLocalTiles = newBoard.tiles.map(tile => {
+    //   if (tile.image.startsWith('data:')) {
+    //     tile.image = this.getNewUrl(tile);
+    //   }
+    //   return tile;
+    // })
+    const newTiles = await Promise.all(
+      newBoard.tiles.map(async tile => {
+        if (
+          tile.image.startsWith('data:') ||
+          tile.image.startsWith('https://')
+        ) {
+          tile.image = await this.getLocalTileImage(tile);
+          console.log('Pre LOCAL IMAGE', tile.image);
+          updateLocalImage(tile);
+        }
+        return tile;
+      })
+    );
+    const boardWithLocalImg = {
+      ...newBoard,
+      tiles: newTiles
+    };
+    return boardWithLocalImg;
+  }
+
+  async boardWithLocalImages(board) {
+    const { localImages, updateLocalImage, output } = this.props;
+    const newTiles = await Promise.all(
+      board.tiles.map(async tile => {
+        const image = localImages.find(image => image.id === tile.id);
+
+        if (image && !image.isLoaded) {
+          const localPath = await this.getLocalTileImage(tile);
+
+          const localTile = {
+            ...tile,
+            image: localPath
+          };
+          updateLocalImage(localTile);
+
+          return localTile;
+        }
+        return {
+          ...tile,
+          image: image ? image.localPath : tile.image
+        };
+      })
+    );
+    const boardWithLocalImages = {
+      ...board,
+      tiles: newTiles
+    };
+    return boardWithLocalImages;
+  }
+
+  async outputWithLocalImages() {
+    const { localImages, updateLocalImage, output, changeOutput } = this.props;
+
+    const newOutput = await Promise.all(
+      output.map(async value => {
+        const tile = { ...value };
+        if (tile.image.startsWith('blob:') || tile.image.startsWith('data:')) {
+          const localImage = localImages.find(
+            image => image.id === tile.id
+            // if (image.id === value.id) {
+            //   console.log("image id", image.id)
+            //   console.log("")
+            //   return image.localPath
+            // } else { return false }
+          );
+          if (localImage && !localImage.isLoaded) {
+            const localPath = await this.getLocalTileImage(tile);
+
+            // const localTile = {
+            //   ...tile,
+            //   image: localPath
+            // };
+            tile.image = localPath;
+            updateLocalImage(tile);
+
+            // const outputIndex = output.findIndex((symbol) => symbol.image === image.id);
+            // const newOutput = { ...output };
+            // newOutput[outputIndex].image = localPath;
+            // changeOutput(newOutput)
+
+            // if (output.length) {
+            //   const outputIndex = output.findIndex((symbol) => symbol.image === image.id);
+            //   if (outputIndex !== -1) {
+            //     const newOutput = { ...output };
+            //     newOutput[outputIndex].image = localPath;
+            //     changeOutput(newOutput)
+            //   }
+            // }
+          }
+        }
+        return tile;
+      })
+    );
+    console.log(newOutput);
+    changeOutput(newOutput);
   }
 
   toggleSelectMode() {
@@ -1667,7 +1826,9 @@ const mapStateToProps = ({
     lang,
     offlineVoiceAlert,
     isRootBoardTourEnabled: liveHelp.isRootBoardTourEnabled,
-    isUnlockedTourEnabled: liveHelp.isUnlockedTourEnabled
+    isUnlockedTourEnabled: liveHelp.isUnlockedTourEnabled,
+    isConnected,
+    localImages: board.images
   };
 };
 
@@ -1701,7 +1862,9 @@ const mapDispatchToProps = {
   downloadImages,
   disableTour,
   createApiBoard,
-  upsertApiBoard
+  upsertApiBoard,
+  updateLocalImage,
+  updateLoadLocalImages
 };
 
 export default connect(

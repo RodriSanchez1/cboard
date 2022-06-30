@@ -40,3 +40,5 @@ export const DOWNLOAD_IMAGE_SUCCESS = 'cboard/Board/DOWNLOAD_IMAGE_SUCCESS';
 export const DOWNLOAD_IMAGE_FAILURE = 'cboard/Board/DOWNLOAD_IMAGE_FAILURE';
 export const DEFAULT_ROWS_NUMBER = 5;
 export const DEFAULT_COLUMNS_NUMBER = 5;
+export const UPDATE_LOCAL_IMAGE = 'cboard/Board/UPDATE_LOCAL_IMAGE';
+export const UPDATE_LOAD_LOCAL_IMAGES = 'cboard/Board/UPDATE_LOAD_LOCAL_IMAGES';

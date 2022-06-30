@@ -13,19 +13,62 @@ import {
   speak
 } from '../../../providers/SpeechProvider/SpeechProvider.actions';
 
-import { changeOutput, clickOutput, changeLiveMode } from '../Board.actions';
+import {
+  changeOutput,
+  clickOutput,
+  changeLiveMode,
+  updateLocalImage,
+  getLocalTileImage
+} from '../Board.actions';
 import SymbolOutput from './SymbolOutput';
 
-function translateOutput(output, intl) {
+function translateOutput(output, intl, localImages) {
   const translatedOutput = output.map(value => {
     let translatedValue = { ...value };
 
     if (value.labelKey && intl.messages[value.labelKey]) {
       translatedValue.label = intl.formatMessage({ id: value.labelKey });
     }
+    console.log(value);
+
     return translatedValue;
   });
   return translatedOutput;
+}
+
+async function outputWithLocalImages(output, localImages) {
+  return await Promise.all(
+    output.map(async value => {
+      const tile = { ...value };
+      if (tile.image.startsWith('blob:') || tile.image.startsWith('data:')) {
+        const localImage = localImages.find(
+          image => image.id === tile.id
+          // if (image.id === value.id) {
+          //   console.log("image id", image.id)
+          //   console.log("")
+          //   return image.localPath
+          // } else { return false }
+        );
+        if (localImage && !localImage.isLoaded) {
+          const localPath = await this.getLocalTileImage(tile);
+
+          // const localTile = {
+          //   ...tile,
+          //   image: localPath
+          // };
+          tile.image = localPath;
+          updateLocalImage(tile);
+          return tile;
+        }
+      }
+    })
+  );
+}
+
+async function prepareOutput(output, intl, localImages) {
+  const translatedOutput = translateOutput(output, intl);
+  //const outputWithLocalImage = await outputWithLocalImages(translatedOutput, localImages);
+  //return outputWithLocalImage;
 }
 
 export class OutputContainer extends Component {
@@ -54,7 +97,11 @@ export class OutputContainer extends Component {
 
   static getDerivedStateFromProps(props, state) {
     if (props.output.length !== state.translatedOutput.length) {
-      const translatedOutput = translateOutput(props.output, props.intl);
+      const translatedOutput = translateOutput(
+        props.output,
+        props.intl,
+        props.images
+      );
       return { translatedOutput };
     }
     return null;
@@ -315,7 +362,8 @@ const mapStateToProps = ({ board, app }) => {
     output: board.output,
     isLiveMode: board.isLiveMode,
     navigationSettings: app.navigationSettings,
-    increaseOutputButtons: app.displaySettings.increaseOutputButtons
+    increaseOutputButtons: app.displaySettings.increaseOutputButtons,
+    images: board.images
   };
 };
 
@@ -325,7 +373,8 @@ const mapDispatchToProps = {
   clickOutput,
   speak,
   showNotification,
-  changeLiveMode
+  changeLiveMode,
+  updateLocalImage
 };
 
 export default connect(

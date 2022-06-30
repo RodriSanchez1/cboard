@@ -35,7 +35,9 @@ import {
   GET_API_MY_BOARDS_STARTED,
   DOWNLOAD_IMAGES_STARTED,
   DOWNLOAD_IMAGE_SUCCESS,
-  DOWNLOAD_IMAGE_FAILURE
+  DOWNLOAD_IMAGE_FAILURE,
+  UPDATE_LOCAL_IMAGE,
+  UPDATE_LOAD_LOCAL_IMAGES
 } from './Board.constants';
 import { LOGOUT, LOGIN_SUCCESS } from '../Account/Login/Login.constants';
 
@@ -410,6 +412,30 @@ function boardReducer(state = initialState, action) {
     case DOWNLOAD_IMAGE_FAILURE:
       return {
         ...state
+      };
+    case UPDATE_LOCAL_IMAGE:
+      const images = [...state.images];
+      const newImages = images.map(img =>
+        img.id === action.element.id
+          ? {
+              ...img,
+              localPath: action.element.image,
+              isLoaded: true
+            }
+          : img
+      );
+      return {
+        ...state,
+        images: newImages
+      };
+    case UPDATE_LOAD_LOCAL_IMAGES:
+      const img = [...state.images];
+      return {
+        ...state,
+        images: img.map(img => ({
+          ...img,
+          isLoaded: action.isLoaded
+        }))
       };
     default:
       return state;

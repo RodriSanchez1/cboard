@@ -37,7 +37,9 @@ import {
   DOWNLOAD_IMAGES_FAILURE,
   DOWNLOAD_IMAGES_STARTED,
   DOWNLOAD_IMAGE_SUCCESS,
-  DOWNLOAD_IMAGE_FAILURE
+  DOWNLOAD_IMAGE_FAILURE,
+  UPDATE_LOCAL_IMAGE,
+  UPDATE_LOAD_LOCAL_IMAGES
 } from './Board.constants';
 
 import API from '../../api';
@@ -50,6 +52,7 @@ import {
   getApiMyCommunicators
 } from '../Communicator/Communicator.actions';
 import { isAndroid, writeCvaFile } from '../../cordova-util';
+import { db } from '../../indexedDb';
 
 const BOARDS_PAGE_LIMIT = 100;
 
@@ -305,6 +308,20 @@ export function downloadImageFailure(message) {
   };
 }
 
+export function updateLocalImage(element) {
+  return {
+    type: UPDATE_LOCAL_IMAGE,
+    element
+  };
+}
+
+export function updateLoadLocalImages(isLoaded) {
+  return {
+    type: UPDATE_LOAD_LOCAL_IMAGES,
+    isLoaded
+  };
+}
+
 export function getApiMyBoards() {
   return dispatch => {
     dispatch(getApiMyBoardsStarted());
@@ -407,6 +424,13 @@ export function getApiObjects() {
       });
   };
 }
+async function getNewUrl(element) {
+  const fileName = element.fileName;
+  console.log(typeof fileName);
+  const arrayBuffer = await db.images.get(fileName);
+  const blob = new Blob([arrayBuffer.arrayBuffer]);
+  return URL.createObjectURL(blob);
+}
 
 export function downloadImages() {
   return async (dispatch, getState) => {
@@ -418,9 +442,12 @@ export function downloadImages() {
         if (
           typeof boards[i] !== 'undefined' &&
           typeof boards[i].caption !== 'undefined' &&
-          isUrl(boards[i].caption)
+          (isUrl(boards[i].caption) || boards[i].caption.startsWith('data:'))
         ) {
-          const img = images.find(image => image.id === boards[i].id);
+          //const img = images.find(image => image.id === boards[i].id);
+          const img = await db.images.get({
+            id: boards[i].id
+          });
           if (!img) {
             const element = await storeImage(
               boards[i].caption,
@@ -434,11 +461,15 @@ export function downloadImages() {
           if (
             typeof boards[i].tiles[j] !== 'undefined' &&
             typeof boards[i].tiles[j].image !== 'undefined' &&
-            isUrl(boards[i].tiles[j].image)
+            (isUrl(boards[i].tiles[j].image) ||
+              boards[i].tiles[j].image.startsWith('data:'))
           ) {
-            const img = images.find(
-              image => image.id === boards[i].tiles[j].id
-            );
+            // const img = images.find(
+            //   image => image.id === boards[i].tiles[j].id
+            // );
+            const img = await db.images.get({
+              id: boards[i].tiles[j].id
+            });
             if (!img) {
               const element = await storeImage(
                 boards[i].tiles[j].image,
@@ -462,32 +493,66 @@ async function storeImage(image, id, type) {
   try {
     let response = await fetch(image);
     const blob = await response.blob();
-    const fileName = getFileNameFromUrl(image);
-    if (isAndroid()) {
-      const filePath = '/Android/data/com.unicef.cboard/files/' + fileName;
-      const fEntry = await writeCvaFile(filePath, blob);
-      element = {
-        id: id,
-        type: type,
-        url: image,
-        location: fEntry.nativeURL
-      };
-    }
+    //const arrayBuffer = await blob.arrayBuffer();
+    const fileName = getFileName(image, id, type);
+    //const dbImage = { name: fileName, file: arrayBuffer }
+    const dbImage = { id: id, name: fileName, file: blob };
+    const image2 = await db.images.put(dbImage);
+    console.log('returned from save', image2);
+    const localPath = await getLocalTileImage({ id: id, image: image });
+
+    element = {
+      id: id,
+      type: type,
+      fileName: fileName,
+      localPath: localPath,
+      isLoaded: true
+    };
+    // if (isAndroid()) {
+    //   const filePath = '/Android/data/com.unicef.cboard/files/' + fileName;
+    //   const fEntry = await writeCvaFile(filePath, blob);
+    //   element = {
+    //     id: id,
+    //     type: type,
+    //     url: image,
+    //     location: fEntry.nativeURL
+    //   };
+    // }
   } catch (err) {
     console.log(err.message);
   }
   return element;
 }
 
-function getFileNameFromUrl(url) {
-  const parsed = new URL(url);
-  const filename = parsed.pathname.substring(
-    parsed.pathname.lastIndexOf('/') + 1
-  );
-  if (filename.lastIndexOf('.') !== -1) {
-    return filename;
+function getFileName(path, id, type) {
+  if (isUrl(path)) {
+    const parsed = new URL(path);
+    const filename = parsed.pathname.substring(
+      parsed.pathname.lastIndexOf('/') + 1
+    );
+    if (filename.lastIndexOf('.') !== -1) {
+      return filename;
+    } else {
+      return `${filename}.png`;
+    }
+  }
+  return `${id}${type}.png`;
+}
+
+export async function getLocalTileImage(tile) {
+  //const id = this.getFileNameFromUrl(tile.image);
+  const blob = await db.images.get({
+    id: tile.id
+  });
+  if (blob) {
+    // const ab = new ArrayBuffer(arrayBuffer.arrayBuffer);
+    console.log(blob);
+    //const blob = new Blob([arrayBuffer.arrayBuffer], { type: 'image/png' });
+    const url = URL.createObjectURL(blob.file);
+
+    return url;
   } else {
-    return `${filename}.png`;
+    return tile.image;
   }
 }
 

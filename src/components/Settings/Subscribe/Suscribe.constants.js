@@ -1,4 +1,5 @@
 //export const AVAIABLE_PRODUCTS_ID = [{ subscriptionId: "premium_full", planId: "premium-full-features-yearl" }];
+//wip
 export const AVAIABLE_PRODUCTS_ID = [
   {
     subscriptionId: 'premium_full',
